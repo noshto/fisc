@@ -11,6 +11,7 @@ import (
 	"github.com/noshto/dsig/pkg/safenet"
 	"github.com/noshto/gen"
 	"github.com/noshto/iic"
+	"github.com/noshto/pdf"
 	"github.com/noshto/reg"
 	"github.com/noshto/sep"
 )
@@ -22,6 +23,9 @@ var (
 )
 
 func main() {
+
+	loadConfig()
+	loadSafenetConfig()
 
 	PrintUsage()
 
@@ -95,8 +99,15 @@ func registerInvoice() {
 		log.Fatalln(err)
 	}
 
-	// TODO: use InternalOrdNum, record responses into the folder
-	_ = InternalOrdNum
+	if err := pdf.GeneratePDF(&pdf.Params{
+		SepConfig:      SepConfig,
+		InternalInvNum: InternalOrdNum,
+		ReqFile:        "./dsig.xml",
+		RespFile:       "./reg.xml",
+		OutFile:        "./2021-01.pdf",
+	}); err != nil {
+		log.Fatalln(err)
+	}
 }
 
 func generateIIC() {
@@ -163,7 +174,7 @@ func loadSafenetConfig() {
 		log.Fatalln(err)
 	}
 	SafenetConfig = &safenet.Config{}
-	err = json.Unmarshal(buf, &SepConfig)
+	err = json.Unmarshal(buf, &SafenetConfig)
 	if err != nil {
 		log.Fatalln(err)
 	}
