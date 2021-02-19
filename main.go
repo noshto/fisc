@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"os"
 	"strconv"
 
 	"github.com/noshto/dsig"
@@ -61,6 +62,12 @@ func PrintUsage() {
 	fmt.Println("[4] REGISTRACIJA KLIJENATA")
 }
 
+func showErrorAndExit(err error) {
+	fmt.Println(err)
+	_ = gen.Scan("Pritisnite bilo koji taster da biste izašli: ")
+	os.Exit(0)
+}
+
 func registerInvoice() {
 	loadConfig()
 	loadSafenetConfig()
@@ -70,35 +77,60 @@ func registerInvoice() {
 		OutFile:   "./gen.xml",
 	})
 	if err != nil {
-		log.Fatalln(err)
+		showErrorAndExit(err)
 	}
 
+	fmt.Println()
+	fmt.Println("Molim provjerite svi podatke prije slanja u poresku!")
+	fmt.Println()
+	gen.PrintInvoiceDetails("./gen.xml", SepConfig, InternalOrdNum)
+
+	fmt.Println("Nastavite sa slanjem")
+	fmt.Println("[1] Da")
+	fmt.Println("[2] Ne")
+	stringValue := gen.Scan("Nastavite sa slanjem: ")
+	uintValue, err := strconv.ParseUint(stringValue, 10, 64)
+	if err != nil {
+		showErrorAndExit(err)
+	}
+	if uintValue != 1 {
+		showErrorAndExit(fmt.Errorf("slanje otkazano"))
+	}
+
+	fmt.Println("Nastavi sa slanjem")
+	fmt.Print("Generisanje JIKR: ")
 	if err := iic.WriteIIC(&iic.Params{
 		SafenetConfig: SafenetConfig,
 		InFile:        "./gen.xml",
 		OutFile:       "./iic.xml",
 	}); err != nil {
-		log.Fatalln(err)
+		showErrorAndExit(err)
 	}
+	fmt.Println("OK")
 
+	fmt.Print("Generisanje DSIG: ")
 	if err := dsig.Sign(&dsig.Params{
 		SepConfig:     SepConfig,
 		SafenetConfig: SafenetConfig,
 		InFile:        "./iic.xml",
 		OutFile:       "./dsig.xml",
 	}); err != nil {
-		log.Fatalln(err)
+		showErrorAndExit(err)
 	}
+	fmt.Println("OK")
 
+	fmt.Print("Registrovanje: ")
 	if err := reg.Register(&reg.Params{
 		SafenetConfig: SafenetConfig,
 		SepConfig:     SepConfig,
 		InFile:        "./dsig.xml",
 		OutFile:       "./reg.xml",
 	}); err != nil {
-		log.Fatalln(err)
+		showErrorAndExit(err)
 	}
+	fmt.Println("OK")
 
+	fmt.Print("Generisanje PDF: ")
 	if err := pdf.GeneratePDF(&pdf.Params{
 		SepConfig:      SepConfig,
 		InternalInvNum: InternalOrdNum,
@@ -106,8 +138,13 @@ func registerInvoice() {
 		RespFile:       "./reg.xml",
 		OutFile:        "./2021-01.pdf",
 	}); err != nil {
-		log.Fatalln(err)
+		showErrorAndExit(err)
 	}
+	fmt.Println("OK")
+
+	// TODO: store
+	fmt.Print("Čuvanje rezultata: ")
+	fmt.Println("NOT IMPLEMENTED")
 }
 
 func generateIIC() {
