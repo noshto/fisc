@@ -172,6 +172,19 @@ func registerInvoice() error {
 	}); err != nil {
 		return err
 	}
+	// check whether api succeeded
+	buf, err := ioutil.ReadFile(currentWorkingDirectoryFilePath("reg.xml"))
+	if err != nil {
+		return err
+	}
+	RegisterInvoiceResponse := sep.RegisterInvoiceResponse{}
+	if err := xml.Unmarshal(buf, &RegisterInvoiceResponse); err != nil {
+		return err
+	}
+	if RegisterInvoiceResponse.Body.RegisterInvoiceResponse.FIC == "" {
+		fmt.Println(RegisterInvoiceResponse.Body.Fault)
+		return fmt.Errorf("%v", RegisterInvoiceResponse.Body.Fault)
+	}
 	fmt.Println("OK")
 
 	fmt.Print("Generisanje PDF: ")
@@ -188,11 +201,12 @@ func registerInvoice() error {
 	fmt.Println("OK")
 
 	fmt.Print("Čuvanje rezultata: ")
-	if err := save(
+	folder, pdfFilePath, err := save(
 		currentWorkingDirectoryFilePath("dsig.xml"),
 		currentWorkingDirectoryFilePath("reg.xml"),
 		currentWorkingDirectoryFilePath("inv.pdf"),
-	); err != nil {
+	)
+	if err != nil {
 		return err
 	}
 	fmt.Println("OK")
@@ -209,6 +223,9 @@ func registerInvoice() error {
 		return nil
 	}
 	fmt.Println("OK")
+
+	fmt.Printf("Rezultate sačuvani u %s\n", folder)
+	fmt.Printf("PDF fajl sačuvan u %s\n", pdfFilePath)
 
 	return nil
 }
@@ -274,10 +291,8 @@ func registerTCR() error {
 	}); err != nil {
 		return err
 	}
-	fmt.Println("OK")
-
-	fmt.Print("Čuvanje rezultata: ")
-	buf, err := ioutil.ReadFile(currentWorkingDirectoryFilePath("tcr.reg.xml"))
+	// check whether api succeeded
+	buf, err := ioutil.ReadFile(currentWorkingDirectoryFilePath("reg.xml"))
 	if err != nil {
 		return err
 	}
@@ -286,9 +301,12 @@ func registerTCR() error {
 		return err
 	}
 	if RegisterTCRResponse.Body.RegisterTCRResponse.TCRCode == "" {
+		fmt.Println(RegisterTCRResponse.Body.Fault)
 		return fmt.Errorf("%v", RegisterTCRResponse.Body.Fault)
 	}
+	fmt.Println("OK")
 
+	fmt.Print("Čuvanje rezultata: ")
 	doc := etree.NewDocument()
 	if err := doc.ReadFromFile(currentWorkingDirectoryFilePath("tcr.dsig.xml")); err != nil {
 		return err
@@ -471,12 +489,12 @@ func saveSepConfig() error {
 	return ioutil.WriteFile(currentWorkingDirectoryFilePath("config.json"), buf, 0644)
 }
 
-func save(requestFilePath, responseFilePath, pdfFilePath string) error {
+func save(requestFilePath, responseFilePath, pdfFilePath string) (string, string, error) {
 
 	// generate output folder, ./records/<DATE>
 	workDir, err := filepath.Abs(filepath.Dir(os.Args[0]))
 	if err != nil {
-		return err
+		return "", "", err
 	}
 
 	recordsDir := filepath.Join(workDir, "records")
@@ -484,70 +502,70 @@ func save(requestFilePath, responseFilePath, pdfFilePath string) error {
 
 	if _, err := os.Stat(currentDayDir); os.IsNotExist(err) {
 		if err := os.MkdirAll(currentDayDir, 0755); err != nil {
-			return err
+			return "", "", err
 		}
 	}
 
 	// save RegisterInvoiceRequest
 	doc := etree.NewDocument()
 	if err := doc.ReadFromFile(requestFilePath); err != nil {
-		return err
+		return "", "", err
 	}
 	reqFileName, err := requestFileName(doc)
 	if err != nil {
-		return err
+		return "", "", err
 	}
 	reqFilePath := filepath.Join(currentDayDir, reqFileName)
 	elem := doc.FindElement("//RegisterInvoiceRequest")
 	if elem == nil {
-		return fmt.Errorf("invalid xml, RegisterInvoiceRequest")
+		return "", "", fmt.Errorf("invalid xml, RegisterInvoiceRequest")
 	}
 	reqDoc := etree.NewDocument()
 	reqDoc.SetRoot(elem.Copy())
 	reqDoc.IndentTabs()
 	reqDoc.Root().SetTail("")
 	if err := reqDoc.WriteToFile(reqFilePath); err != nil {
-		return err
+		return "", "", err
 	}
 
 	// save RegisterInvoiceResponse
 	respFileName, err := responseFileName(doc)
 	if err != nil {
-		return err
+		return "", "", err
 	}
 	respFilePath := filepath.Join(currentDayDir, respFileName)
 	doc = etree.NewDocument()
 	if err := doc.ReadFromFile(responseFilePath); err != nil {
-		return err
+		return "", "", err
 	}
 	elem = doc.FindElement("//RegisterInvoiceResponse")
 	if elem == nil {
-		return fmt.Errorf("invalid xml, RegisterInvoiceResponse")
+		return "", "", fmt.Errorf("invalid xml, RegisterInvoiceResponse")
 	}
 	reqDoc = etree.NewDocument()
 	reqDoc.SetRoot(elem.Copy())
 	reqDoc.IndentTabs()
 	reqDoc.Root().SetTail("")
 	if err := reqDoc.WriteToFile(respFilePath); err != nil {
-		return err
+		return "", "", err
 	}
 
 	// save pdf
 	buf, err := ioutil.ReadFile(pdfFilePath)
 	if err != nil {
-		return err
+		return "", "", err
 	}
 	extension := filepath.Ext(reqFileName)
 	pdfFileName := strings.Join([]string{reqFileName[0 : len(reqFileName)-len(extension)], "pdf"}, ".")
 	invoiceFilePath := filepath.Join(currentDayDir, pdfFileName)
 	if err := ioutil.WriteFile(invoiceFilePath, buf, 0644); err != nil {
-		return err
+		return "", "", err
 	}
 	invoiceFilePath = currentWorkingDirectoryFilePath(pdfFileName)
 	if err := ioutil.WriteFile(invoiceFilePath, buf, 0644); err != nil {
-		return err
+		return "", "", err
 	}
-	return nil
+	return currentDayDir, invoiceFilePath, nil
 }
 
 func requestFileName(doc *etree.Document) (string, error) {
