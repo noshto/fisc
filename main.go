@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -38,19 +37,23 @@ func main() {
 	}
 	os.Chdir(WorkDir)
 
+	// create config.json
 	if err := loadConfig(); err != nil {
 		registerCompany()
 	}
+	// if it fails - exit
 	if err := loadConfig(); err != nil {
 		showErrorAndExit(err)
 	}
 
+	// make sure TCR registered, if not - register
 	if SepConfig.TCR == nil {
 		if err := registerTCR(); err != nil {
 			showErrorAndExit(err)
 		}
 	}
 
+	// load clients list, if fails - init with empty list
 	if err := loadClients(); err != nil {
 		Clients = &[]sep.Client{}
 	}
@@ -61,7 +64,8 @@ func main() {
 		stringValue := gen.Scan("Izaberite općiju: ")
 		uint64Value, err := strconv.ParseUint(stringValue, 10, 64)
 		if err != nil {
-			log.Fatalln(err)
+			fmt.Println("Pogrešna općija")
+			continue
 		}
 		switch uint64Value {
 		case 0:
@@ -210,6 +214,10 @@ func registerInvoice() error {
 }
 
 func generateIIC() error {
+	fmt.Println()
+	fmt.Println("---------------------------------------------------------------")
+	fmt.Println("VERIFIKACIJA IKOF")
+
 	if err := loadSafenetConfig(); err != nil {
 		if err := setSafenetConfig(); err != nil {
 			return err
@@ -233,17 +241,17 @@ func currentWorkingDirectoryFilePath(fileName string) string {
 }
 
 func registerTCR() error {
-	if err := loadSafenetConfig(); err != nil {
-		if err := setSafenetConfig(); err != nil {
-			return err
-		}
-	}
-
 	if err := gen.GenerateRegisterTCRRequest(&gen.Params{
 		SepConfig: SepConfig,
 		OutFile:   currentWorkingDirectoryFilePath("tcr.xml"),
 	}); err != nil {
 		return err
+	}
+
+	if err := loadSafenetConfig(); err != nil {
+		if err := setSafenetConfig(); err != nil {
+			return err
+		}
 	}
 
 	fmt.Print("Generisanje DSIG: ")
@@ -307,6 +315,7 @@ func registerTCR() error {
 	}
 	fmt.Println("OK")
 
+	fmt.Print("Čišćenje: ")
 	if err := clean(
 		currentWorkingDirectoryFilePath("tcr.xml"),
 		currentWorkingDirectoryFilePath("tcr.dsig.xml"),
@@ -325,6 +334,9 @@ func registerTCR() error {
 func generateClient() *sep.Client {
 	fmt.Println()
 	fmt.Println("---------------------------------------------------------------")
+	fmt.Println("REGISTRACIJA KLIJENATA")
+	fmt.Println()
+	fmt.Println("---------------------------------------------------------------")
 	fmt.Println("Molim unesite podatke za novog klijenata:")
 	return &sep.Client{
 		Name:    gen.Scan("Ime: "),
@@ -337,7 +349,6 @@ func generateClient() *sep.Client {
 }
 
 func registerClient() error {
-	loadClients()
 	client := generateClient()
 	if Clients == nil {
 		Clients = &[]sep.Client{*client}
