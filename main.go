@@ -86,8 +86,38 @@ func main() {
 			if err := registerClient(); err != nil {
 				showErrorAndExit(err)
 			}
+		case 5:
+			printCodes()
 		}
 	}
+}
+
+func printCodes() {
+	fmt.Println("---------------------------------------------------------------")
+	fmt.Println()
+	if SepConfig.TCR == nil {
+		fmt.Printf("Kôd poslovne jedinice (prostora): %s\n", "NIJE REGISTRISANO")
+	} else {
+		fmt.Printf("Kôd poslovne jedinice (prostora): %s\n", SepConfig.TCR.BusinUnitCode)
+	}
+	if SepConfig.TCR == nil {
+		fmt.Printf("Kôd elektronskog naplatnog uređaja: %s\n", "NIJE REGISTRISANO")
+	} else {
+		fmt.Printf("Kôd elektronskog naplatnog uređaja: %s\n", SepConfig.TCR.TCRCode)
+	}
+	if SepConfig.TCR == nil {
+		fmt.Printf("Kôd softvera: %s\n", "NIJE REGISTRISANO")
+	} else {
+		fmt.Printf("Kôd softvera: %s\n", SepConfig.TCR.SoftCode)
+	}
+	if SepConfig.TCR == nil {
+		fmt.Printf("Kôd održavaoca: %s\n", "NIJE REGISTRISANO")
+	} else {
+		fmt.Printf("Kôd održavaoca: %s\n", SepConfig.TCR.MaintainerCode)
+	}
+	fmt.Printf("Kôd operatera: %s\n", SepConfig.OperatorCode)
+
+	_ = gen.Scan("Pritisnite bilo koji taster da biste izašli: ")
 }
 
 // printUsage prints welcome message
@@ -99,6 +129,7 @@ func printUsage() {
 	fmt.Println("[2] VERIFIKACIJA IKOF")
 	fmt.Println("[3] REGISTRACIJA ENU")
 	fmt.Println("[4] REGISTRACIJA KLIJENATA")
+	fmt.Println("[5] PREGLED PODATAKA")
 	fmt.Println("[0] IZAĆI")
 }
 
