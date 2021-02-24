@@ -292,7 +292,7 @@ func registerTCR() error {
 		return err
 	}
 	// check whether api succeeded
-	buf, err := ioutil.ReadFile(currentWorkingDirectoryFilePath("reg.xml"))
+	buf, err := ioutil.ReadFile(currentWorkingDirectoryFilePath("tcr.reg.xml"))
 	if err != nil {
 		return err
 	}
