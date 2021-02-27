@@ -71,24 +71,28 @@ func main() {
 		case 0:
 			os.Exit(0)
 		case 1:
-			if err := registerInvoice(); err != nil {
+			if err := registerInvoice(false); err != nil {
 				showErrorAndExit(err)
 			}
 		case 2:
-			if err := generateIIC(); err != nil {
+			if err := registerInvoice(true); err != nil {
 				showErrorAndExit(err)
 			}
 		case 3:
-			if err := registerTCR(); err != nil {
+			if err := generateIIC(); err != nil {
 				showErrorAndExit(err)
 			}
 		case 4:
-			if err := registerClient(); err != nil {
+			if err := registerTCR(); err != nil {
 				showErrorAndExit(err)
 			}
 		case 5:
-			printCodes()
+			if err := registerClient(); err != nil {
+				showErrorAndExit(err)
+			}
 		case 6:
+			printCodes()
+		case 7:
 			fmt.Println()
 			fmt.Println("---------------------------------------------------------------")
 			fmt.Println("PREGLED IZVESTAJA ZA PERIOD")
@@ -112,6 +116,7 @@ func main() {
 func printCodes() {
 	fmt.Println("---------------------------------------------------------------")
 	fmt.Println()
+	fmt.Printf("PIB: %s\n", SepConfig.TIN)
 	if SepConfig.TCR == nil {
 		fmt.Printf("Kôd poslovne jedinice (prostora): %s\n", "NIJE REGISTRISANO")
 	} else {
@@ -143,11 +148,12 @@ func printUsage() {
 	fmt.Println()
 	fmt.Println("Izaberite općiju:")
 	fmt.Println("[1] REGISTRACIJA I FISKALIZACIJA RAČUNA")
-	fmt.Println("[2] VERIFIKACIJA IKOF")
-	fmt.Println("[3] REGISTRACIJA ENU")
-	fmt.Println("[4] REGISTRACIJA KLIJENATA")
-	fmt.Println("[5] PREGLED PODATAKA ENU")
-	fmt.Println("[6] PREGLED IZVESTAJA ZA PERIOD")
+	fmt.Println("[2] SKRACENA REGISTRACIJA I FISKALIZACIJA RAČUNA")
+	fmt.Println("[3] VERIFIKACIJA IKOF")
+	fmt.Println("[4] REGISTRACIJA ENU")
+	fmt.Println("[5] REGISTRACIJA KLIJENATA")
+	fmt.Println("[6] PREGLED PODATAKA ENU")
+	fmt.Println("[7] PREGLED IZVESTAJA ZA PERIOD")
 	fmt.Println("[0] IZAĆI")
 }
 
@@ -157,7 +163,7 @@ func showErrorAndExit(err error) {
 	os.Exit(0)
 }
 
-func registerInvoice() error {
+func registerInvoice(simplified bool) error {
 	if err := loadSafenetConfig(); err != nil {
 		if err := setSafenetConfig(); err != nil {
 			return err
@@ -165,9 +171,10 @@ func registerInvoice() error {
 	}
 
 	InternalOrdNum, err := gen.GenerateRegisterInvoiceRequest(&gen.Params{
-		SepConfig: SepConfig,
-		Clients:   Clients,
-		OutFile:   currentWorkingDirectoryFilePath("gen.xml"),
+		SepConfig:  SepConfig,
+		Clients:    Clients,
+		OutFile:    currentWorkingDirectoryFilePath("gen.xml"),
+		Simplified: simplified,
 	})
 	if err != nil {
 		return err
