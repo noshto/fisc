@@ -88,6 +88,23 @@ func main() {
 			}
 		case 5:
 			printCodes()
+		case 6:
+			fmt.Println()
+			fmt.Println("---------------------------------------------------------------")
+			fmt.Println("PREGLED IZVESTAJA ZA PERIOD")
+			fmt.Println()
+			fmt.Println("---------------------------------------------------------------")
+			stringValue := gen.Scan("Datum od (u formati yyyy-MM-dd): ")
+			from, err := time.Parse("2006-01-02", stringValue)
+			if err != nil {
+				showErrorAndExit(err)
+			}
+			stringValue = gen.Scan("Datum do (u formati yyyy-MM-dd): ")
+			to, err := time.Parse("2006-01-02", stringValue)
+			if err != nil {
+				showErrorAndExit(err)
+			}
+			printSummary(from, to)
 		}
 	}
 }
@@ -129,7 +146,8 @@ func printUsage() {
 	fmt.Println("[2] VERIFIKACIJA IKOF")
 	fmt.Println("[3] REGISTRACIJA ENU")
 	fmt.Println("[4] REGISTRACIJA KLIJENATA")
-	fmt.Println("[5] PREGLED PODATAKA")
+	fmt.Println("[5] PREGLED PODATAKA ENU")
+	fmt.Println("[6] PREGLED IZVESTAJA ZA PERIOD")
 	fmt.Println("[0] IZAĆI")
 }
 
@@ -682,4 +700,113 @@ func clean(files ...string) error {
 		}
 	}
 	return nil
+}
+
+func printSummary(startDate, endDate time.Time) {
+
+	// enumerate all folders from startDate to endDate
+	dates := []string{}
+	var it time.Time = startDate
+	for {
+		dates = append(dates, it.Format("2006-01-02"))
+		it = it.AddDate(0, 0, 1)
+		if it.After(endDate) {
+			break
+		}
+	}
+
+	recordsDir := filepath.Join(WorkDir, "records")
+
+	Num := 0
+	PBWoR := sep.Amount(0)
+	PBR := sep.Amount(0)
+	R := sep.Amount(0)
+	VA := sep.Amount(0)
+	Total := sep.Amount(0)
+
+	// gather requests from all selected folders
+	requests := []sep.RegisterInvoiceRequest{}
+	for _, folder := range dates {
+		// check if folder exists
+		dateDir := filepath.Join(recordsDir, folder)
+		if _, err := os.Stat(dateDir); os.IsNotExist(err) {
+			continue
+		}
+
+		files, err := ioutil.ReadDir(dateDir)
+		if err != nil {
+			fmt.Println(err.Error())
+			continue
+		}
+
+		// read each _request.xml file and retrieve content
+		for _, fi := range files {
+
+			if strings.Contains(fi.Name(), "_request.xml") {
+				filePath := filepath.Join(dateDir, fi.Name())
+
+				request := sep.RegisterInvoiceRequest{}
+				buf, err := ioutil.ReadFile(filePath)
+				if err != nil {
+					fmt.Println(err.Error())
+				}
+				if err := xml.Unmarshal(buf, &request); err != nil {
+					fmt.Println(err.Error())
+				}
+				requests = append(requests, request)
+			}
+		}
+
+		Num += len(requests)
+
+		for _, req := range requests {
+			for _, i := range *req.Invoice.Items {
+				PBWoR += i.UPB * i.Q
+
+				upbr := i.UPB - i.UPB*(i.R/100)
+				PBR += upbr * i.Q
+
+				R += i.UPB*i.Q - upbr*i.Q
+
+				uva := upbr * (i.VR / 100)
+				VA += uva * i.Q
+			}
+			Total += req.Invoice.TotPrice
+		}
+
+		requests = []sep.RegisterInvoiceRequest{}
+	}
+
+	fmt.Println("---------------------------------------------------------------")
+	fmt.Printf("Koliko ukupno faktura: %d\n", Num)
+	fmt.Printf("Koliko osnovica prije rabata: %.02f\n", float64(PBWoR))
+	fmt.Printf("Koliko rabat: %.02f\n", float64(R))
+	fmt.Printf("Koliko osnovica posle rabata: %.02f\n", float64(PBR))
+	fmt.Printf("Koliko PDV: %.02f\n", float64(VA))
+	fmt.Printf("Koliko ukupno sa PDV: %.02f\n", float64(Total))
+	fmt.Println("---------------------------------------------------------------")
+
+	fileName := strings.Join([]string{"izveštaj", startDate.Format("2006-01-02"), endDate.Format("2006-01-02")}, "_")
+	fileName = strings.Join([]string{fileName, "pdf"}, ".")
+	filePath := currentWorkingDirectoryFilePath(fileName)
+	if err := pdf.GenerateExempt(
+		SepConfig,
+		startDate,
+		endDate,
+		Num,
+		float64(PBWoR),
+		float64(R),
+		float64(PBR),
+		float64(VA),
+		float64(Total),
+		filePath,
+	); err != nil {
+		showErrorAndExit(err)
+	}
+
+	fmt.Println()
+	fmt.Printf("Izveštaj sačuvan: %s\n", filePath)
+
+	fmt.Println()
+	_ = gen.Scan("Pritisnite bilo koji taster da biste izašli: ")
 }
