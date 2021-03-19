@@ -79,20 +79,28 @@ func main() {
 				showErrorAndExit(err)
 			}
 		case 3:
-			if err := generateIIC(); err != nil {
+			if err := registerCorrectiveInvoice(false); err != nil {
 				showErrorAndExit(err)
 			}
 		case 4:
-			if err := registerTCR(); err != nil {
+			if err := registerSummaryInvoice(false); err != nil {
 				showErrorAndExit(err)
 			}
 		case 5:
-			if err := registerClient(); err != nil {
+			if err := generateIIC(); err != nil {
 				showErrorAndExit(err)
 			}
 		case 6:
-			printCodes()
+			if err := registerTCR(); err != nil {
+				showErrorAndExit(err)
+			}
 		case 7:
+			if err := registerClient(); err != nil {
+				showErrorAndExit(err)
+			}
+		case 8:
+			printCodes()
+		case 9:
 			fmt.Println()
 			fmt.Println("---------------------------------------------------------------")
 			fmt.Println("PREGLED IZVESTAJA ZA PERIOD")
@@ -149,11 +157,13 @@ func printUsage() {
 	fmt.Println("Izaberite općiju:")
 	fmt.Println("[1] REGISTRACIJA I FISKALIZACIJA RAČUNA")
 	fmt.Println("[2] SKRACENA REGISTRACIJA I FISKALIZACIJA RAČUNA")
-	fmt.Println("[3] VERIFIKACIJA IKOF")
-	fmt.Println("[4] REGISTRACIJA ENU")
-	fmt.Println("[5] REGISTRACIJA KLIJENATA")
-	fmt.Println("[6] PREGLED PODATAKA ENU")
-	fmt.Println("[7] PREGLED IZVESTAJA ZA PERIOD")
+	fmt.Println("[3] REGISTRACIJA KOREKTIVNOG RAČUNA")
+	fmt.Println("[4] REGISTRACIJA SUMARNOG RAČUNA")
+	fmt.Println("[5] VERIFIKACIJA IKOF")
+	fmt.Println("[6] REGISTRACIJA ENU")
+	fmt.Println("[7] REGISTRACIJA KLIJENATA")
+	fmt.Println("[8] PREGLED PODATAKA ENU")
+	fmt.Println("[9] PREGLED IZVESTAJA ZA PERIOD")
 	fmt.Println("[0] IZAĆI")
 }
 
@@ -171,6 +181,252 @@ func registerInvoice(simplified bool) error {
 	}
 
 	InternalOrdNum, err := gen.GenerateRegisterInvoiceRequest(&gen.Params{
+		SepConfig:  SepConfig,
+		Clients:    Clients,
+		OutFile:    currentWorkingDirectoryFilePath("gen.xml"),
+		Simplified: simplified,
+	})
+	if err != nil {
+		return err
+	}
+
+	fmt.Println()
+	fmt.Println("Molim provjerite svi podatke prije slanja u poresku!")
+	fmt.Println()
+	gen.PrintInvoiceDetails(currentWorkingDirectoryFilePath("gen.xml"), SepConfig, Clients, InternalOrdNum)
+
+	fmt.Println("Nastavite sa slanjem")
+	fmt.Println("[1] Da")
+	fmt.Println("[2] Ne")
+	stringValue := gen.Scan("Nastavite sa slanjem: ")
+	uintValue, err := strconv.ParseUint(stringValue, 10, 64)
+	if err != nil {
+		return err
+	}
+	if uintValue != 1 {
+		return fmt.Errorf("slanje otkazano")
+	}
+
+	fmt.Println("Nastavi sa slanjem")
+	fmt.Print("Generisanje JIKR: ")
+	if err := iic.WriteIIC(&iic.Params{
+		SafenetConfig: SafenetConfig,
+		InFile:        currentWorkingDirectoryFilePath("gen.xml"),
+		OutFile:       currentWorkingDirectoryFilePath("iic.xml"),
+	}); err != nil {
+		return err
+	}
+	fmt.Println("OK")
+
+	fmt.Print("Generisanje DSIG: ")
+	if err := dsig.Sign(&dsig.Params{
+		SepConfig:     SepConfig,
+		SafenetConfig: SafenetConfig,
+		InFile:        currentWorkingDirectoryFilePath("iic.xml"),
+		OutFile:       currentWorkingDirectoryFilePath("dsig.xml"),
+	}); err != nil {
+		return err
+	}
+	fmt.Println("OK")
+
+	fmt.Print("Registrovanje: ")
+	if err := reg.Register(&reg.Params{
+		SafenetConfig: SafenetConfig,
+		SepConfig:     SepConfig,
+		InFile:        currentWorkingDirectoryFilePath("dsig.xml"),
+		OutFile:       currentWorkingDirectoryFilePath("reg.xml"),
+	}); err != nil {
+		return err
+	}
+	// check whether api succeeded
+	buf, err := ioutil.ReadFile(currentWorkingDirectoryFilePath("reg.xml"))
+	if err != nil {
+		return err
+	}
+	RegisterInvoiceResponse := sep.RegisterInvoiceResponse{}
+	if err := xml.Unmarshal(buf, &RegisterInvoiceResponse); err != nil {
+		return err
+	}
+	if RegisterInvoiceResponse.Body.RegisterInvoiceResponse.FIC == "" {
+		fmt.Println(RegisterInvoiceResponse.Body.Fault)
+		return fmt.Errorf("%v", RegisterInvoiceResponse.Body.Fault)
+	}
+	fmt.Println("OK")
+
+	fmt.Print("Generisanje PDF: ")
+	if err := pdf.GeneratePDF(&pdf.Params{
+		SepConfig:      SepConfig,
+		Clients:        Clients,
+		InternalInvNum: InternalOrdNum,
+		ReqFile:        currentWorkingDirectoryFilePath("dsig.xml"),
+		RespFile:       currentWorkingDirectoryFilePath("reg.xml"),
+		OutFile:        currentWorkingDirectoryFilePath("inv.pdf"),
+	}); err != nil {
+		return err
+	}
+	fmt.Println("OK")
+
+	fmt.Print("Čuvanje rezultata: ")
+	folder, pdfFilePath, err := save(
+		currentWorkingDirectoryFilePath("dsig.xml"),
+		currentWorkingDirectoryFilePath("reg.xml"),
+		currentWorkingDirectoryFilePath("inv.pdf"),
+	)
+	if err != nil {
+		return err
+	}
+	fmt.Println("OK")
+
+	fmt.Print("Čišćenje: ")
+	if err := clean(
+		currentWorkingDirectoryFilePath("gen.xml"),
+		currentWorkingDirectoryFilePath("iic.xml"),
+		currentWorkingDirectoryFilePath("dsig.xml"),
+		currentWorkingDirectoryFilePath("reg.xml"),
+		currentWorkingDirectoryFilePath("inv.pdf"),
+	); err != nil {
+		fmt.Println("NIJE USPEŠNO")
+		return nil
+	}
+	fmt.Println("OK")
+
+	fmt.Printf("Rezultate sačuvani u %s\n", folder)
+	fmt.Printf("PDF fajl sačuvan u %s\n", pdfFilePath)
+
+	return nil
+}
+
+func registerCorrectiveInvoice(simplified bool) error {
+	if err := loadSafenetConfig(); err != nil {
+		if err := setSafenetConfig(); err != nil {
+			return err
+		}
+	}
+
+	InternalOrdNum, err := gen.GenerateCorrectiveRegisterInvoiceRequest(&gen.Params{
+		SepConfig:  SepConfig,
+		Clients:    Clients,
+		OutFile:    currentWorkingDirectoryFilePath("gen.xml"),
+		Simplified: simplified,
+	})
+	if err != nil {
+		return err
+	}
+
+	fmt.Println()
+	fmt.Println("Molim provjerite svi podatke prije slanja u poresku!")
+	fmt.Println()
+	gen.PrintInvoiceDetails(currentWorkingDirectoryFilePath("gen.xml"), SepConfig, Clients, InternalOrdNum)
+
+	fmt.Println("Nastavite sa slanjem")
+	fmt.Println("[1] Da")
+	fmt.Println("[2] Ne")
+	stringValue := gen.Scan("Nastavite sa slanjem: ")
+	uintValue, err := strconv.ParseUint(stringValue, 10, 64)
+	if err != nil {
+		return err
+	}
+	if uintValue != 1 {
+		return fmt.Errorf("slanje otkazano")
+	}
+
+	fmt.Println("Nastavi sa slanjem")
+	fmt.Print("Generisanje JIKR: ")
+	if err := iic.WriteIIC(&iic.Params{
+		SafenetConfig: SafenetConfig,
+		InFile:        currentWorkingDirectoryFilePath("gen.xml"),
+		OutFile:       currentWorkingDirectoryFilePath("iic.xml"),
+	}); err != nil {
+		return err
+	}
+	fmt.Println("OK")
+
+	fmt.Print("Generisanje DSIG: ")
+	if err := dsig.Sign(&dsig.Params{
+		SepConfig:     SepConfig,
+		SafenetConfig: SafenetConfig,
+		InFile:        currentWorkingDirectoryFilePath("iic.xml"),
+		OutFile:       currentWorkingDirectoryFilePath("dsig.xml"),
+	}); err != nil {
+		return err
+	}
+	fmt.Println("OK")
+
+	fmt.Print("Registrovanje: ")
+	if err := reg.Register(&reg.Params{
+		SafenetConfig: SafenetConfig,
+		SepConfig:     SepConfig,
+		InFile:        currentWorkingDirectoryFilePath("dsig.xml"),
+		OutFile:       currentWorkingDirectoryFilePath("reg.xml"),
+	}); err != nil {
+		return err
+	}
+	// check whether api succeeded
+	buf, err := ioutil.ReadFile(currentWorkingDirectoryFilePath("reg.xml"))
+	if err != nil {
+		return err
+	}
+	RegisterInvoiceResponse := sep.RegisterInvoiceResponse{}
+	if err := xml.Unmarshal(buf, &RegisterInvoiceResponse); err != nil {
+		return err
+	}
+	if RegisterInvoiceResponse.Body.RegisterInvoiceResponse.FIC == "" {
+		fmt.Println(RegisterInvoiceResponse.Body.Fault)
+		return fmt.Errorf("%v", RegisterInvoiceResponse.Body.Fault)
+	}
+	fmt.Println("OK")
+
+	fmt.Print("Generisanje PDF: ")
+	if err := pdf.GeneratePDF(&pdf.Params{
+		SepConfig:      SepConfig,
+		Clients:        Clients,
+		InternalInvNum: InternalOrdNum,
+		ReqFile:        currentWorkingDirectoryFilePath("dsig.xml"),
+		RespFile:       currentWorkingDirectoryFilePath("reg.xml"),
+		OutFile:        currentWorkingDirectoryFilePath("inv.pdf"),
+	}); err != nil {
+		return err
+	}
+	fmt.Println("OK")
+
+	fmt.Print("Čuvanje rezultata: ")
+	folder, pdfFilePath, err := save(
+		currentWorkingDirectoryFilePath("dsig.xml"),
+		currentWorkingDirectoryFilePath("reg.xml"),
+		currentWorkingDirectoryFilePath("inv.pdf"),
+	)
+	if err != nil {
+		return err
+	}
+	fmt.Println("OK")
+
+	fmt.Print("Čišćenje: ")
+	if err := clean(
+		currentWorkingDirectoryFilePath("gen.xml"),
+		currentWorkingDirectoryFilePath("iic.xml"),
+		currentWorkingDirectoryFilePath("dsig.xml"),
+		currentWorkingDirectoryFilePath("reg.xml"),
+		currentWorkingDirectoryFilePath("inv.pdf"),
+	); err != nil {
+		fmt.Println("NIJE USPEŠNO")
+		return nil
+	}
+	fmt.Println("OK")
+
+	fmt.Printf("Rezultate sačuvani u %s\n", folder)
+	fmt.Printf("PDF fajl sačuvan u %s\n", pdfFilePath)
+
+	return nil
+}
+
+func registerSummaryInvoice(simplified bool) error {
+	if err := loadSafenetConfig(); err != nil {
+		if err := setSafenetConfig(); err != nil {
+			return err
+		}
+	}
+
+	InternalOrdNum, err := gen.GenerateSummaryRegisterInvoiceRequest(&gen.Params{
 		SepConfig:  SepConfig,
 		Clients:    Clients,
 		OutFile:    currentWorkingDirectoryFilePath("gen.xml"),
